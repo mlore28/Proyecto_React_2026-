@@ -1,0 +1,77 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isAdmin() {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/roles/$(request.auth.uid))
+        && get(/databases/$(database)/documents/roles/$(request.auth.uid)).data.role == 'admin';
+    }
+
+    function validProduct(product) {
+      return product.keys().hasAll(['nombre', 'categoria', 'precio', 'unidad', 'descripcion', 'icono', 'createdAt', 'updatedAt'])
+        && product.keys().hasOnly(['nombre', 'categoria', 'precio', 'unidad', 'descripcion', 'icono', 'createdAt', 'updatedAt'])
+        && product.nombre is string
+        && product.nombre.size() > 0
+        && product.nombre.size() <= 120
+        && product.categoria is string
+        && product.categoria.size() > 0
+        && product.categoria.size() <= 60
+        && product.precio is number
+        && product.precio > 0
+        && product.precio <= 10000000
+        && product.unidad is string
+        && product.unidad.size() > 0
+        && product.unidad.size() <= 30
+        && product.descripcion is string
+        && product.descripcion.size() > 0
+        && product.descripcion.size() <= 500
+        && product.icono is string
+        && product.icono.size() <= 8
+        && product.createdAt is timestamp
+        && product.updatedAt is timestamp;
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create, update: if isAdmin() && validProduct(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn() && request.auth.uid == userId;
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['nombre', 'email', 'createdAt'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() >= 2
+        && request.resource.data.nombre.size() <= 80
+        && request.resource.data.email == request.auth.token.email
+        && request.resource.data.createdAt is timestamp;
+      allow update: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nombre'])
+        && request.resource.data.nombre is string
+        && request.resource.data.nombre.size() >= 2
+        && request.resource.data.nombre.size() <= 80;
+      allow delete: if false;
+    }
+
+    match /roles/{userId} {
+      allow get: if isSignedIn() && request.auth.uid == userId;
+      allow list: if false;
+      allow create: if isSignedIn()
+        && request.auth.uid == userId
+        && request.resource.data.keys().hasOnly(['role'])
+        && request.resource.data.role == 'user';
+      allow update, delete: if false;
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}
